@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "buildCommand": "node --no-warnings vercel-build.cjs && npm run build",
+  "installCommand": "npm install",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "regions": ["iad1"],
+  "functions": {
+    "api/[[...path]].ts": {
+      "runtime": "@vercel/node@2.10.0",
+      "maxDuration": 10
+    },
+    "api/healthcheck.ts": {
+      "runtime": "@vercel/node@2.10.0",
+      "maxDuration": 5
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/[[...path]].ts" },
+    { "source": "/api/healthcheck", "destination": "/api/healthcheck.ts" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" }
+      ]
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "VERCEL_DEPLOYMENT": "true",
+    "NODE_VERSION": "18.x"
+  }
+}

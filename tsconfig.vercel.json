@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["client/src/*"],
+      "@shared/*": ["shared/*"],
+      "@server/*": ["server/*"],
+      "@assets/*": ["attached_assets/*"],
+      "@lib/*": ["client/src/lib/*"],
+      "@components/*": ["client/src/components/*"],
+      "@ui/*": ["client/src/components/ui/*"],
+      "@hooks/*": ["client/src/hooks/*"],
+      "@contexts/*": ["client/src/contexts/*"]
+    }
+  },
+  "include": [
+    "client/src",
+    "server",
+    "shared",
+    "api"
+  ]
+}

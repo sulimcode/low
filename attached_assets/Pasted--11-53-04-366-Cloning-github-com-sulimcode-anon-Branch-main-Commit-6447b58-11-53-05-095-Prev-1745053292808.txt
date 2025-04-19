@@ -1,0 +1,41 @@
+[11:53:04.366] Cloning github.com/sulimcode/anon (Branch: main, Commit: 6447b58)
+[11:53:05.095] Previous build caches not available
+[11:53:05.192] Cloning completed: 826.000ms
+[11:53:05.725] Running build in Washington, D.C., USA (East) – iad1
+[11:53:06.173] Running "vercel build"
+[11:53:06.532] Vercel CLI 41.6.0
+[11:53:07.198] > Installing Builder: @vercel/node@2.10.0
+[11:53:15.106] Running "install" command: `npm install`...
+[11:53:18.839] npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+[11:53:20.160] npm warn deprecated @esbuild-kit/esm-loader@2.6.5: Merged into tsx: https://tsx.is
+[11:53:20.181] npm warn deprecated @esbuild-kit/core-utils@3.3.2: Merged into tsx: https://tsx.is
+[11:53:20.434] npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+[11:53:26.803] 
+[11:53:26.804] added 596 packages, and audited 597 packages in 11s
+[11:53:26.804] 
+[11:53:26.804] 72 packages are looking for funding
+[11:53:26.805]   run `npm fund` for details
+[11:53:26.844] 
+[11:53:26.844] 10 vulnerabilities (8 moderate, 2 high)
+[11:53:26.845] 
+[11:53:26.845] To address issues that do not require attention, run:
+[11:53:26.845]   npm audit fix
+[11:53:26.845] 
+[11:53:26.845] To address all issues (including breaking changes), run:
+[11:53:26.846]   npm audit fix --force
+[11:53:26.846] 
+[11:53:26.846] Run `npm audit` for details.
+[11:53:27.045] file:///vercel/path0/build.js:4
+[11:53:27.045] const fs = require('fs');
+[11:53:27.045]            ^
+[11:53:27.045] 
+[11:53:27.045] ReferenceError: require is not defined in ES module scope, you can use import instead
+[11:53:27.046] This file is being treated as an ES module because it has a '.js' file extension and '/vercel/path0/package.json' contains "type": "module". To treat it as a CommonJS script, rename it to use the '.cjs' file extension.
+[11:53:27.046]     at file:///vercel/path0/build.js:4:12
+[11:53:27.047]     at ModuleJob.run (node:internal/modules/esm/module_job:271:25)
+[11:53:27.047]     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:578:26)
+[11:53:27.048]     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)
+[11:53:27.048] 
+[11:53:27.048] Node.js v22.14.0
+[11:53:27.051] Error: Command "node build.js && node vercel-node-compat.js && npm run build" exited with 1
+[11:53:27.283] 

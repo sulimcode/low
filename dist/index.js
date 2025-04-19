@@ -1,0 +1,804 @@
+var __defProp = Object.defineProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// server/index.ts
+import express2 from "express";
+
+// server/routes.ts
+import { createServer } from "http";
+
+// server/services/prayerTimes.ts
+import axios from "axios";
+
+// client/src/utils/date.ts
+function formatTime(timeString) {
+  const cleanTimeString = timeString.split(" ")[0];
+  const [hours, minutes] = cleanTimeString.split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${minutes.toString().padStart(2, "0")} ${period}`;
+}
+function calculateRemainingTime(prayerTimeInMinutes, currentTimeInMinutes) {
+  if (prayerTimeInMinutes < currentTimeInMinutes) {
+    prayerTimeInMinutes += 24 * 60;
+  }
+  const remainingMinutes = prayerTimeInMinutes - currentTimeInMinutes;
+  const hours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  return JSON.stringify({
+    hours,
+    minutes,
+    format: hours === 0 ? "minutes_only" : "hours_minutes"
+  });
+}
+function timeToMinutes(timeString) {
+  const cleanTimeString = timeString.split(" ")[0];
+  const [hours, minutes] = cleanTimeString.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+// client/src/utils/prayer.ts
+function processPrayerTimesResponse(response, timezone, gmtOffset) {
+  const { data } = response;
+  const { timings, date, meta } = data;
+  let locationDate;
+  if (timezone && gmtOffset !== void 0) {
+    const deviceDate = /* @__PURE__ */ new Date();
+    const utcTime = deviceDate.getTime() + deviceDate.getTimezoneOffset() * 6e4;
+    locationDate = new Date(utcTime + gmtOffset * 1e3);
+    console.log("Using location time:", locationDate, "for timezone", timezone, "GMT offset:", gmtOffset);
+  } else {
+    locationDate = /* @__PURE__ */ new Date();
+    console.log("Using device time:", locationDate);
+  }
+  const locationHours = locationDate.getHours();
+  const locationMinutes = locationDate.getMinutes();
+  const locationTimeInMinutes = locationHours * 60 + locationMinutes;
+  console.log("\u0422\u0435\u043A\u0443\u0449\u0435\u0435 \u0432\u0440\u0435\u043C\u044F \u0432 \u043B\u043E\u043A\u0430\u0446\u0438\u0438:", `${locationHours}:${locationMinutes}`, `(${locationTimeInMinutes} \u043C\u0438\u043D\u0443\u0442)`);
+  const prayerTimesArray = [
+    { name: "Fajr", time: timings.Fajr, timeFormatted: formatTime(timings.Fajr), timeInMinutes: timeToMinutes(timings.Fajr), isCurrent: false },
+    { name: "Sunrise", time: timings.Sunrise, timeFormatted: formatTime(timings.Sunrise), timeInMinutes: timeToMinutes(timings.Sunrise), isCurrent: false },
+    { name: "Dhuhr", time: timings.Dhuhr, timeFormatted: formatTime(timings.Dhuhr), timeInMinutes: timeToMinutes(timings.Dhuhr), isCurrent: false },
+    { name: "Asr", time: timings.Asr, timeFormatted: formatTime(timings.Asr), timeInMinutes: timeToMinutes(timings.Asr), isCurrent: false },
+    { name: "Maghrib", time: timings.Maghrib, timeFormatted: formatTime(timings.Maghrib), timeInMinutes: timeToMinutes(timings.Maghrib), isCurrent: false },
+    { name: "Isha", time: timings.Isha, timeFormatted: formatTime(timings.Isha), timeInMinutes: timeToMinutes(timings.Isha), isCurrent: false }
+  ];
+  let foundCurrent = false;
+  let foundUpcoming = false;
+  prayerTimesArray.forEach((prayer) => {
+    prayer.isCurrent = false;
+    prayer.isUpcoming = false;
+  });
+  console.log("\u0412\u0440\u0435\u043C\u0435\u043D\u0430 \u043C\u043E\u043B\u0438\u0442\u0432 \u0441\u0435\u0433\u043E\u0434\u043D\u044F:");
+  prayerTimesArray.forEach((prayer) => {
+    console.log(`${prayer.name}: ${prayer.time} (${prayer.timeInMinutes} \u043C\u0438\u043D\u0443\u0442)`);
+  });
+  for (let i = 0; i < prayerTimesArray.length; i++) {
+    const nextIndex = i < prayerTimesArray.length - 1 ? i + 1 : 0;
+    let endTimeMinutes;
+    if (nextIndex === 0) {
+      endTimeMinutes = prayerTimesArray[nextIndex].timeInMinutes + 24 * 60;
+    } else {
+      endTimeMinutes = prayerTimesArray[nextIndex].timeInMinutes;
+    }
+    let startTimeMinutes = prayerTimesArray[i].timeInMinutes;
+    if (i === 0 && locationTimeInMinutes < startTimeMinutes) {
+      const lastPrayerIndex = prayerTimesArray.length - 1;
+      const lastPrayerStartTime = prayerTimesArray[lastPrayerIndex].timeInMinutes - 24 * 60;
+      if (locationTimeInMinutes >= lastPrayerStartTime) {
+        prayerTimesArray[lastPrayerIndex].isCurrent = true;
+        foundCurrent = true;
+        console.log("\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u043C\u043E\u043B\u0438\u0442\u0432\u0430 (\u043F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0435\u0433\u043E \u0434\u043D\u044F):", prayerTimesArray[lastPrayerIndex].name);
+      }
+    }
+    if (locationTimeInMinutes >= startTimeMinutes && locationTimeInMinutes < endTimeMinutes) {
+      prayerTimesArray[i].isCurrent = true;
+      foundCurrent = true;
+      console.log("\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u043C\u043E\u043B\u0438\u0442\u0432\u0430:", prayerTimesArray[i].name);
+    }
+    if (i === prayerTimesArray.length - 1 && locationTimeInMinutes >= startTimeMinutes) {
+      prayerTimesArray[i].isCurrent = true;
+      foundCurrent = true;
+      console.log("\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u043C\u043E\u043B\u0438\u0442\u0432\u0430 (\u043F\u043E\u0441\u043B\u0435\u0434\u043D\u044F\u044F \u0432 \u0434\u043D\u0435):", prayerTimesArray[i].name);
+    }
+    let timeToThisPrayer = prayerTimesArray[i].timeInMinutes - locationTimeInMinutes;
+    if (timeToThisPrayer < 0) {
+      timeToThisPrayer += 24 * 60;
+    }
+    prayerTimesArray[i].remainingTime = calculateRemainingTime(
+      prayerTimesArray[i].timeInMinutes,
+      locationTimeInMinutes
+    );
+  }
+  let activePrayerCount = 0;
+  for (const prayer of prayerTimesArray) {
+    if (prayer.isCurrent) {
+      activePrayerCount++;
+    }
+  }
+  if (activePrayerCount > 1) {
+    console.log("\u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E \u0431\u043E\u043B\u044C\u0448\u0435 \u043E\u0434\u043D\u043E\u0439 \u0442\u0435\u043A\u0443\u0449\u0435\u0439 \u043C\u043E\u043B\u0438\u0442\u0432\u044B, \u0438\u0441\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u043C...");
+    let lastCurrentPrayer = null;
+    for (let i = prayerTimesArray.length - 1; i >= 0; i--) {
+      if (prayerTimesArray[i].isCurrent) {
+        lastCurrentPrayer = prayerTimesArray[i];
+        break;
+      }
+    }
+    for (const prayer of prayerTimesArray) {
+      prayer.isCurrent = prayer === lastCurrentPrayer;
+    }
+  }
+  const sortedByTimeToNextPrayer = [...prayerTimesArray].map((prayer) => {
+    let timeToNextPrayer = prayer.timeInMinutes - locationTimeInMinutes;
+    if (timeToNextPrayer < 0) {
+      timeToNextPrayer += 24 * 60;
+    }
+    return { ...prayer, timeToNextPrayer };
+  }).sort((a, b) => a.timeToNextPrayer - b.timeToNextPrayer);
+  for (const prayer of prayerTimesArray) {
+    prayer.isUpcoming = false;
+  }
+  let nextPrayerFound = false;
+  for (const sortedPrayer of sortedByTimeToNextPrayer) {
+    if (!sortedPrayer.isCurrent) {
+      for (const prayer of prayerTimesArray) {
+        if (prayer.name === sortedPrayer.name) {
+          prayer.isUpcoming = true;
+          foundUpcoming = true;
+          nextPrayerFound = true;
+          console.log("\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u043C\u043E\u043B\u0438\u0442\u0432\u0430:", prayer.name, "\u0447\u0435\u0440\u0435\u0437", sortedPrayer.timeToNextPrayer, "\u043C\u0438\u043D\u0443\u0442");
+          break;
+        }
+      }
+      if (nextPrayerFound) break;
+    }
+  }
+  if (!nextPrayerFound && sortedByTimeToNextPrayer.length > 0) {
+    const firstPrayer = sortedByTimeToNextPrayer[0];
+    for (const prayer of prayerTimesArray) {
+      if (prayer.name === firstPrayer.name) {
+        prayer.isUpcoming = true;
+        foundUpcoming = true;
+        console.log("\u0420\u0435\u0437\u0435\u0440\u0432\u043D\u0430\u044F \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u043C\u043E\u043B\u0438\u0442\u0432\u0430:", prayer.name, "\u0447\u0435\u0440\u0435\u0437", firstPrayer.timeToNextPrayer, "\u043C\u0438\u043D\u0443\u0442");
+        break;
+      }
+    }
+  }
+  return {
+    date: date.gregorian.date,
+    gregorianDate: `${date.gregorian.day} ${date.gregorian.month.en}, ${date.gregorian.year}`,
+    islamicDate: `${date.hijri.day} ${date.hijri.month.en}, ${date.hijri.year}`,
+    dayOfWeek: date.gregorian.weekday.en,
+    location: meta.timezone,
+    timezone,
+    gmtOffset,
+    latitude: meta.latitude.toString(),
+    longitude: meta.longitude.toString(),
+    times: prayerTimesArray
+  };
+}
+function processMonthlyPrayerTimesResponse(response) {
+  const { data } = response;
+  const firstDay = data[0];
+  const gregorianMonth = firstDay.date.gregorian.month.en;
+  const gregorianYear = parseInt(firstDay.date.gregorian.year);
+  const islamicMonth = firstDay.date.hijri.month.en;
+  const islamicYear = parseInt(firstDay.date.hijri.year);
+  const days = data.map((day) => {
+    return {
+      gregorianDate: day.date.gregorian.date,
+      islamicDate: day.date.hijri.month.en,
+      gregorianDay: parseInt(day.date.gregorian.day),
+      islamicDay: parseInt(day.date.hijri.day),
+      gregorianMonth: day.date.gregorian.month.number,
+      islamicMonth: day.date.hijri.month.number,
+      fajr: formatTime(day.timings.Fajr),
+      sunrise: formatTime(day.timings.Sunrise),
+      dhuhr: formatTime(day.timings.Dhuhr),
+      asr: formatTime(day.timings.Asr),
+      maghrib: formatTime(day.timings.Maghrib),
+      isha: formatTime(day.timings.Isha)
+    };
+  });
+  return {
+    gregorianMonth,
+    gregorianYear,
+    islamicMonth,
+    islamicYear,
+    days
+  };
+}
+
+// server/services/prayerTimes.ts
+var PRAYER_API_BASE_URL = "https://api.aladhan.com/v1";
+var IP_INFO_API_KEY = process.env.IP_INFO_API_KEY;
+async function getPrayerTimes(latitude, longitude, method = 2) {
+  const latStr = latitude.toString();
+  const lngStr = longitude.toString();
+  const latNum = typeof latitude === "string" ? parseFloat(latitude) : latitude;
+  const lngNum = typeof longitude === "string" ? parseFloat(longitude) : longitude;
+  const today = /* @__PURE__ */ new Date();
+  const url = `${PRAYER_API_BASE_URL}/timings/${today.getTime() / 1e3}`;
+  try {
+    const response = await axios.get(url, {
+      params: {
+        latitude: latStr,
+        longitude: lngStr,
+        method,
+        school: 1,
+        // Ханафи - стандартная школа расчета для России и Кавказа
+        adjustment: 0
+        // Без дополнительных корректировок
+      }
+    });
+    console.log("API response for location:", response.data.data.meta);
+    let timezoneOffset = 0;
+    if (latNum >= 43.2 && latNum <= 43.4 && lngNum >= 45.6 && lngNum <= 45.8) {
+      timezoneOffset = 3;
+      console.log("\u041E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D \u0433\u043E\u0440\u043E\u0434 \u0413\u0440\u043E\u0437\u043D\u044B\u0439, \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D \u0447\u0430\u0441\u043E\u0432\u043E\u0439 \u043F\u043E\u044F\u0441 UTC+3");
+    } else if (lngNum > 30 && lngNum < 37.5) timezoneOffset = 3;
+    else if (lngNum >= 37.5 && lngNum < 52.5) timezoneOffset = 3;
+    else if (lngNum >= 52.5 && lngNum < 67.5) timezoneOffset = 4;
+    else if (lngNum >= 67.5 && lngNum < 82.5) timezoneOffset = 5;
+    else if (lngNum >= 82.5 && lngNum < 97.5) timezoneOffset = 6;
+    else if (lngNum >= 97.5 && lngNum < 112.5) timezoneOffset = 7;
+    else if (lngNum >= 112.5 && lngNum < 127.5) timezoneOffset = 8;
+    else if (lngNum >= 127.5 && lngNum < 142.5) timezoneOffset = 9;
+    else if (lngNum >= 142.5 && lngNum < 157.5) timezoneOffset = 10;
+    else if (lngNum >= 35 && lngNum < 50 && latNum > 40 && latNum < 46) timezoneOffset = 3;
+    else timezoneOffset = Math.round(lngNum / 15);
+    console.log("\u0420\u0430\u0441\u0447\u0435\u0442\u043D\u044B\u0439 \u0447\u0430\u0441\u043E\u0432\u043E\u0439 \u043F\u043E\u044F\u0441 \u0434\u043B\u044F \u043A\u043E\u043E\u0440\u0434\u0438\u043D\u0430\u0442:", latitude, longitude, "UTC+" + timezoneOffset);
+    const apiTimezone = response.data.data.meta.timezone;
+    return processPrayerTimesResponse(response.data, apiTimezone, timezoneOffset * 3600);
+  } catch (error) {
+    console.error("Error fetching prayer times:", error);
+    try {
+      const response = await axios.get(url, {
+        params: {
+          latitude,
+          longitude,
+          method
+        }
+      });
+      return processPrayerTimesResponse(response.data);
+    } catch (backupError) {
+      console.error("Backup request also failed:", backupError);
+      throw new Error("Failed to fetch prayer times from API");
+    }
+  }
+}
+async function getMonthlyPrayerTimes(latitude, longitude, month, year, method = 2) {
+  const url = `${PRAYER_API_BASE_URL}/calendar/${year}/${month}`;
+  try {
+    const response = await axios.get(url, {
+      params: {
+        latitude,
+        longitude,
+        method
+      }
+    });
+    return processMonthlyPrayerTimesResponse(response.data);
+  } catch (error) {
+    console.error("Error fetching monthly prayer times:", error);
+    throw new Error("Failed to fetch monthly prayer times from API");
+  }
+}
+async function getLocationFromCoordinates(latitude, longitude, language = "ru") {
+  try {
+    const url = `https://geocoding-api.open-meteo.com/v1/search`;
+    const response = await axios.get(url, {
+      params: {
+        latitude,
+        longitude,
+        count: 1,
+        language
+        // Use the specified language
+      }
+    });
+    const locationData = response.data.results?.[0];
+    if (!locationData) {
+      throw new Error("No location found for these coordinates");
+    }
+    return {
+      name: locationData.name,
+      country: locationData.country,
+      latitude,
+      longitude,
+      value: `${locationData.name.toLowerCase()}-${locationData.country_code.toLowerCase()}`
+    };
+  } catch (error) {
+    console.error("Error getting location from coordinates:", error);
+    const unknownLocation = language === "ru" ? "\u041F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C\u0441\u043A\u043E\u0435 \u043C\u0435\u0441\u0442\u043E\u043F\u043E\u043B\u043E\u0436\u0435\u043D\u0438\u0435" : language === "en" ? "Custom Location" : language === "ar" ? "\u0645\u0648\u0642\u0639 \u0645\u062E\u0635\u0635" : language === "fr" ? "Emplacement personnalis\xE9" : "Custom Location";
+    const unknownCountry = language === "ru" ? "\u041D\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043D\u043E" : language === "en" ? "Unknown" : language === "ar" ? "\u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641" : language === "fr" ? "Inconnu" : "Unknown";
+    return {
+      name: unknownLocation,
+      country: unknownCountry,
+      latitude,
+      longitude,
+      value: `custom-${latitude.toFixed(4)}-${longitude.toFixed(4)}`
+    };
+  }
+}
+async function searchLocationsByName(query, language = "ru") {
+  try {
+    console.log(`Searching for location with query: ${query} in language: ${language}`);
+    const url = `https://geocoding-api.open-meteo.com/v1/search`;
+    const response = await axios.get(url, {
+      params: {
+        name: query,
+        count: 10,
+        // Limit results
+        language
+        // Use the passed language parameter
+      }
+    });
+    console.log(`API response status: ${response.status}`);
+    if (!response.data.results || response.data.results.length === 0) {
+      console.log("No results found");
+      return [];
+    }
+    console.log(`Found ${response.data.results.length} results`);
+    const locations = response.data.results.map((result) => ({
+      name: result.name || "Unknown",
+      country: result.country || "Unknown",
+      latitude: result.latitude,
+      longitude: result.longitude,
+      value: `${(result.name || "loc").toLowerCase().replace(/\s+/g, "-")}-${(result.country_code || "un").toLowerCase()}`
+    }));
+    console.log("Mapped locations:", locations);
+    return locations;
+  } catch (error) {
+    console.error("Error searching for locations:", error);
+    if (axios.isAxiosError(error)) {
+      console.error("Axios error details:", error.response?.data || error.message);
+    }
+    return [];
+  }
+}
+
+// server/routes.ts
+import NodeCache from "node-cache";
+var cache = new NodeCache({ stdTTL: 10800 });
+async function registerRoutes(app2) {
+  app2.get("/api/prayer-times", async (req, res) => {
+    try {
+      const { latitude, longitude, method = 2 } = req.query;
+      if (!latitude || !longitude) {
+        return res.status(400).json({ message: "Latitude and longitude are required" });
+      }
+      const cacheKey = `prayer-times-${latitude}-${longitude}-${method}-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}`;
+      const cachedData = cache.get(cacheKey);
+      if (cachedData) {
+        return res.json(cachedData);
+      }
+      const prayerTimes = await getPrayerTimes(
+        String(latitude),
+        String(longitude),
+        Number(method)
+      );
+      cache.set(cacheKey, prayerTimes);
+      res.json(prayerTimes);
+    } catch (error) {
+      console.error("Error fetching prayer times:", error);
+      res.status(500).json({ message: "Failed to fetch prayer times" });
+    }
+  });
+  app2.get("/api/prayer-times/monthly", async (req, res) => {
+    try {
+      const { latitude, longitude, month, year, method = 2 } = req.query;
+      if (!latitude || !longitude || !month || !year) {
+        return res.status(400).json({
+          message: "Latitude, longitude, month, and year are required"
+        });
+      }
+      const cacheKey = `monthly-${latitude}-${longitude}-${month}-${year}-${method}`;
+      const cachedData = cache.get(cacheKey);
+      if (cachedData) {
+        return res.json(cachedData);
+      }
+      const monthlyPrayerTimes = await getMonthlyPrayerTimes(
+        String(latitude),
+        String(longitude),
+        Number(month),
+        Number(year),
+        Number(method)
+      );
+      cache.set(cacheKey, monthlyPrayerTimes);
+      res.json(monthlyPrayerTimes);
+    } catch (error) {
+      console.error("Error fetching monthly prayer times:", error);
+      res.status(500).json({ message: "Failed to fetch monthly prayer times" });
+    }
+  });
+  app2.get("/api/geo/ip-location", async (req, res) => {
+    try {
+      const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+      const language = String(req.query.language || "ru");
+      const defaultLocations = {
+        "ru": {
+          name: "\u041C\u0435\u043A\u043A\u0430",
+          country: "\u0421\u0430\u0443\u0434\u043E\u0432\u0441\u043A\u0430\u044F \u0410\u0440\u0430\u0432\u0438\u044F",
+          latitude: 21.4225,
+          longitude: 39.8262,
+          value: "mecca-saudi-arabia"
+        },
+        "en": {
+          name: "Mecca",
+          country: "Saudi Arabia",
+          latitude: 21.4225,
+          longitude: 39.8262,
+          value: "mecca-saudi-arabia"
+        },
+        "ar": {
+          name: "\u0645\u0643\u0629",
+          country: "\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629",
+          latitude: 21.4225,
+          longitude: 39.8262,
+          value: "mecca-saudi-arabia"
+        }
+        // Add more languages as needed
+      };
+      const lang = language;
+      const defaultLocation = lang in defaultLocations ? defaultLocations[lang] : defaultLocations["en"];
+      res.json(defaultLocation);
+    } catch (error) {
+      console.error("Error getting location from IP:", error);
+      res.status(500).json({ message: "Failed to get location from IP" });
+    }
+  });
+  app2.get("/api/geo/reverse-geocode", async (req, res) => {
+    try {
+      const { latitude, longitude, language = "ru" } = req.query;
+      if (!latitude || !longitude) {
+        return res.status(400).json({ message: "Latitude and longitude are required" });
+      }
+      const location = await getLocationFromCoordinates(
+        Number(latitude),
+        Number(longitude),
+        String(language)
+      );
+      res.json(location);
+    } catch (error) {
+      console.error("Error getting location from coordinates:", error);
+      res.status(500).json({ message: "Failed to get location from coordinates" });
+    }
+  });
+  app2.get("/api/locations/search", async (req, res) => {
+    try {
+      const { query, language = "ru" } = req.query;
+      if (!query) {
+        return res.status(400).json({ message: "Search query is required" });
+      }
+      console.log("Received search request for:", query, "in language:", language);
+      const locations = await searchLocationsByName(String(query), String(language));
+      console.log("Final locations to return:", locations);
+      res.json(locations);
+    } catch (error) {
+      console.error("Error searching for locations:", error);
+      res.status(500).json({ message: "Failed to search for locations" });
+    }
+  });
+  app2.get("/api/locations/popular", (req, res) => {
+    try {
+      const language = req.query.language || "ru";
+      const popularLocationsMap = {
+        "ru": [
+          { name: "\u041C\u0435\u043A\u043A\u0430", country: "\u0421\u0430\u0443\u0434\u043E\u0432\u0441\u043A\u0430\u044F \u0410\u0440\u0430\u0432\u0438\u044F", latitude: 21.4225, longitude: 39.8262, value: "mecca-saudi-arabia" },
+          { name: "\u041C\u0435\u0434\u0438\u043D\u0430", country: "\u0421\u0430\u0443\u0434\u043E\u0432\u0441\u043A\u0430\u044F \u0410\u0440\u0430\u0432\u0438\u044F", latitude: 24.5247, longitude: 39.5692, value: "medina-saudi-arabia" },
+          { name: "\u0421\u0442\u0430\u043C\u0431\u0443\u043B", country: "\u0422\u0443\u0440\u0446\u0438\u044F", latitude: 41.0082, longitude: 28.9784, value: "istanbul-turkey" },
+          { name: "\u041A\u0430\u0438\u0440", country: "\u0415\u0433\u0438\u043F\u0435\u0442", latitude: 30.0444, longitude: 31.2357, value: "cairo-egypt" },
+          { name: "\u0414\u0443\u0431\u0430\u0439", country: "\u041E\u0410\u042D", latitude: 25.2048, longitude: 55.2708, value: "dubai-uae" },
+          { name: "\u041C\u043E\u0441\u043A\u0432\u0430", country: "\u0420\u043E\u0441\u0441\u0438\u044F", latitude: 55.7558, longitude: 37.6173, value: "moscow-russia" },
+          { name: "\u0421\u0430\u043D\u043A\u0442-\u041F\u0435\u0442\u0435\u0440\u0431\u0443\u0440\u0433", country: "\u0420\u043E\u0441\u0441\u0438\u044F", latitude: 59.9343, longitude: 30.3351, value: "st-petersburg-russia" },
+          { name: "\u041A\u0430\u0437\u0430\u043D\u044C", country: "\u0420\u043E\u0441\u0441\u0438\u044F", latitude: 55.7887, longitude: 49.1221, value: "kazan-russia" },
+          { name: "\u0423\u0444\u0430", country: "\u0420\u043E\u0441\u0441\u0438\u044F", latitude: 54.7348, longitude: 55.9578, value: "ufa-russia" },
+          { name: "\u0413\u0440\u043E\u0437\u043D\u044B\u0439", country: "\u0420\u043E\u0441\u0441\u0438\u044F", latitude: 43.3168, longitude: 45.6927, value: "grozny-russia" }
+        ],
+        "en": [
+          { name: "Mecca", country: "Saudi Arabia", latitude: 21.4225, longitude: 39.8262, value: "mecca-saudi-arabia" },
+          { name: "Medina", country: "Saudi Arabia", latitude: 24.5247, longitude: 39.5692, value: "medina-saudi-arabia" },
+          { name: "Istanbul", country: "Turkey", latitude: 41.0082, longitude: 28.9784, value: "istanbul-turkey" },
+          { name: "Cairo", country: "Egypt", latitude: 30.0444, longitude: 31.2357, value: "cairo-egypt" },
+          { name: "Dubai", country: "UAE", latitude: 25.2048, longitude: 55.2708, value: "dubai-uae" },
+          { name: "Moscow", country: "Russia", latitude: 55.7558, longitude: 37.6173, value: "moscow-russia" },
+          { name: "Saint Petersburg", country: "Russia", latitude: 59.9343, longitude: 30.3351, value: "st-petersburg-russia" },
+          { name: "Kazan", country: "Russia", latitude: 55.7887, longitude: 49.1221, value: "kazan-russia" },
+          { name: "Ufa", country: "Russia", latitude: 54.7348, longitude: 55.9578, value: "ufa-russia" },
+          { name: "Grozny", country: "Russia", latitude: 43.3168, longitude: 45.6927, value: "grozny-russia" }
+        ],
+        "ar": [
+          { name: "\u0645\u0643\u0629", country: "\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629", latitude: 21.4225, longitude: 39.8262, value: "mecca-saudi-arabia" },
+          { name: "\u0627\u0644\u0645\u062F\u064A\u0646\u0629 \u0627\u0644\u0645\u0646\u0648\u0631\u0629", country: "\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629", latitude: 24.5247, longitude: 39.5692, value: "medina-saudi-arabia" },
+          { name: "\u0625\u0633\u0637\u0646\u0628\u0648\u0644", country: "\u062A\u0631\u0643\u064A\u0627", latitude: 41.0082, longitude: 28.9784, value: "istanbul-turkey" },
+          { name: "\u0627\u0644\u0642\u0627\u0647\u0631\u0629", country: "\u0645\u0635\u0631", latitude: 30.0444, longitude: 31.2357, value: "cairo-egypt" },
+          { name: "\u062F\u0628\u064A", country: "\u0627\u0644\u0625\u0645\u0627\u0631\u0627\u062A \u0627\u0644\u0639\u0631\u0628\u064A\u0629 \u0627\u0644\u0645\u062A\u062D\u062F\u0629", latitude: 25.2048, longitude: 55.2708, value: "dubai-uae" },
+          { name: "\u0645\u0648\u0633\u0643\u0648", country: "\u0631\u0648\u0633\u064A\u0627", latitude: 55.7558, longitude: 37.6173, value: "moscow-russia" },
+          { name: "\u0633\u0627\u0646\u062A \u0628\u0637\u0631\u0633\u0628\u0631\u063A", country: "\u0631\u0648\u0633\u064A\u0627", latitude: 59.9343, longitude: 30.3351, value: "st-petersburg-russia" },
+          { name: "\u0642\u0627\u0632\u0627\u0646", country: "\u0631\u0648\u0633\u064A\u0627", latitude: 55.7887, longitude: 49.1221, value: "kazan-russia" },
+          { name: "\u0623\u0648\u0641\u0627", country: "\u0631\u0648\u0633\u064A\u0627", latitude: 54.7348, longitude: 55.9578, value: "ufa-russia" },
+          { name: "\u063A\u0631\u0648\u0632\u0646\u064A", country: "\u0631\u0648\u0633\u064A\u0627", latitude: 43.3168, longitude: 45.6927, value: "grozny-russia" }
+        ]
+        // Add more languages as needed
+      };
+      const lang = String(language);
+      const popularLocations = lang in popularLocationsMap ? popularLocationsMap[lang] : popularLocationsMap["en"];
+      res.json(popularLocations);
+    } catch (error) {
+      console.error("Error getting popular locations:", error);
+      res.status(500).json({ message: "Failed to get popular locations" });
+    }
+  });
+  const httpServer = createServer(app2);
+  return httpServer;
+}
+
+// server/vite.ts
+import express from "express";
+import fs from "fs";
+import path2 from "path";
+import { createServer as createViteServer, createLogger } from "vite";
+
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import themePlugin from "@replit/vite-plugin-shadcn-theme-json";
+import path from "path";
+import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+var vite_config_default = defineConfig({
+  plugins: [
+    react(),
+    runtimeErrorOverlay(),
+    themePlugin(),
+    ...process.env.NODE_ENV !== "production" && process.env.REPL_ID !== void 0 ? [
+      await import("@replit/vite-plugin-cartographer").then(
+        (m) => m.cartographer()
+      )
+    ] : []
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path.resolve(import.meta.dirname, "shared"),
+      "@assets": path.resolve(import.meta.dirname, "attached_assets")
+    }
+  },
+  root: path.resolve(import.meta.dirname, "client"),
+  build: {
+    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    emptyOutDir: true
+  }
+});
+
+// server/vite.ts
+import { nanoid } from "nanoid";
+var viteLogger = createLogger();
+function log(message, source = "express") {
+  const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+async function setupVite(app2, server) {
+  const serverOptions = {
+    middlewareMode: true,
+    hmr: { server },
+    allowedHosts: true
+  };
+  const vite = await createViteServer({
+    ...vite_config_default,
+    configFile: false,
+    customLogger: {
+      ...viteLogger,
+      error: (msg, options) => {
+        viteLogger.error(msg, options);
+        process.exit(1);
+      }
+    },
+    server: serverOptions,
+    appType: "custom"
+  });
+  app2.use(vite.middlewares);
+  app2.use("*", async (req, res, next) => {
+    const url = req.originalUrl;
+    try {
+      const clientTemplate = path2.resolve(
+        import.meta.dirname,
+        "..",
+        "client",
+        "index.html"
+      );
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
+      template = template.replace(
+        `src="/src/main.tsx"`,
+        `src="/src/main.tsx?v=${nanoid()}"`
+      );
+      const page = await vite.transformIndexHtml(url, template);
+      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+    } catch (e) {
+      vite.ssrFixStacktrace(e);
+      next(e);
+    }
+  });
+}
+function serveStatic(app2) {
+  const distPath = path2.resolve(import.meta.dirname, "public");
+  if (!fs.existsSync(distPath)) {
+    throw new Error(
+      `Could not find the build directory: ${distPath}, make sure to build the client first`
+    );
+  }
+  app2.use(express.static(distPath));
+  app2.use("*", (_req, res) => {
+    res.sendFile(path2.resolve(distPath, "index.html"));
+  });
+}
+
+// server/db.ts
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import ws from "ws";
+
+// shared/schema.ts
+var schema_exports = {};
+__export(schema_exports, {
+  insertPrayerTimesCacheSchema: () => insertPrayerTimesCacheSchema,
+  insertUserPreferencesSchema: () => insertUserPreferencesSchema,
+  insertUserSchema: () => insertUserSchema,
+  prayerTimesCache: () => prayerTimesCache,
+  userPreferences: () => userPreferences,
+  users: () => users
+});
+import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+var userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  ipAddress: text("ip_address").notNull(),
+  location: text("location").notNull(),
+  latitude: text("latitude"),
+  longitude: text("longitude"),
+  method: integer("calculation_method").default(2),
+  // Default to Islamic Society of North America
+  language: text("language").default("en"),
+  theme: text("theme").default("light"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow()
+});
+var insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true
+});
+var prayerTimesCache = pgTable("prayer_times_cache", {
+  id: serial("id").primaryKey(),
+  location: text("location").notNull(),
+  latitude: text("latitude"),
+  longitude: text("longitude"),
+  date: text("date").notNull(),
+  method: integer("calculation_method").default(2),
+  times: text("times").notNull(),
+  // JSON string of prayer times
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull()
+});
+var insertPrayerTimesCacheSchema = createInsertSchema(prayerTimesCache).omit({
+  id: true,
+  createdAt: true
+});
+var users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  password: text("password").notNull()
+});
+var insertUserSchema = createInsertSchema(users).pick({
+  username: true,
+  password: true
+});
+
+// server/db.ts
+neonConfig.webSocketConstructor = ws;
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?"
+  );
+}
+var pool = new Pool({ connectionString: process.env.DATABASE_URL });
+var db = drizzle({ client: pool, schema: schema_exports });
+async function initializeDatabase() {
+  try {
+    console.log("Checking database schema...");
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL
+      );
+      
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        id SERIAL PRIMARY KEY,
+        ip_address TEXT NOT NULL,
+        location TEXT NOT NULL,
+        latitude TEXT,
+        longitude TEXT,
+        calculation_method INTEGER DEFAULT 2,
+        language TEXT DEFAULT 'en',
+        theme TEXT DEFAULT 'light',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      
+      CREATE TABLE IF NOT EXISTS prayer_times_cache (
+        id SERIAL PRIMARY KEY,
+        location TEXT NOT NULL,
+        latitude TEXT,
+        longitude TEXT,
+        date TEXT NOT NULL,
+        calculation_method INTEGER DEFAULT 2,
+        times TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL
+      );
+    `);
+    console.log("Database schema is ready");
+  } catch (error) {
+    console.error("Error initializing database:", error);
+  }
+}
+
+// server/index.ts
+var app = express2();
+app.use(express2.json());
+app.use(express2.urlencoded({ extended: false }));
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path3 = req.path;
+  let capturedJsonResponse = void 0;
+  const originalResJson = res.json;
+  res.json = function(bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path3.startsWith("/api")) {
+      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "\u2026";
+      }
+      log(logLine);
+    }
+  });
+  next();
+});
+(async () => {
+  await initializeDatabase();
+  const server = await registerRoutes(app);
+  app.use((err, _req, res, _next) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    res.status(status).json({ message });
+    throw err;
+  });
+  if (app.get("env") === "development") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
+  const port = 5e3;
+  server.listen({
+    port,
+    host: "0.0.0.0",
+    reusePort: true
+  }, () => {
+    log(`serving on port ${port}`);
+  });
+})();
